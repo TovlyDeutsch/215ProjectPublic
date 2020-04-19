@@ -1,0 +1,1 @@
+py src/main.py corpora/cmudict_processed.tsv corpora/unused/Daland_et_al_IPA.txt results/perplexities.txt

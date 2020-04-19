@@ -1,0 +1,131 @@
+---
+title: "exp1and2"
+author: "Tovly Deutsch"
+date: "4/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+## Attribution
+Portions of this code were written by the authors of Michael Becker, Andrew Nevins, and Jonathan Levine (2012) Asymmetries in generalizing alternations to and from initial syllables. Language 88:2, pp. 231–268.
+That orginal code and data (not included in this repo) can be found at http://becker.phonologist.org/projects/english/.
+
+## Setup
+```{r}
+exp1 = read.csv("../corpora/exp1.csv")
+exp2 = read.csv("../corpora/exp2.csv", encoding = 'UTF-8')
+
+exp1$shape_group = factor(exp1$shape_group, levels=c("P","_P","P_"))
+exp2$shape = factor(exp2$shape, levels=c("mono","iamb","trochee"))
+```
+
+## CMU-ipa dictionary lookup
+The CMU-ipa dict is by Alexander Piperski and can be found at https://github.com/menelik3/cmudict-ipa.
+```{r}
+library('utf8')
+library('utils')
+cmu_dict = read.csv('../corpora/cmudict-0.7b-ipa.tsv', sep = '\t', header = FALSE,
+                    quote = "", encoding = 'UTF-8', colClasses = "character")
+cmu_dict
+cmu_lookup <- cmu_dict$V2
+names(cmu_lookup) <- cmu_dict$V1
+stress = TRUE
+get_phonetic_form = function(word) {
+  upper_word = toupper(word)
+  if (upper_word %in% names(cmu_lookup)) {
+    result = cmu_lookup[[upper_word]]
+    # remove stress and length markers (\u02C8 is the primary stress marker)
+    if (stress) {
+      result = str_remove_all(result, "ˌ|ː")
+    }
+    else {
+      result = str_remove_all(result, "\u02C8|ˌ|ː")
+    }
+  }
+  else {
+    cat(sprintf('Could not find phonetic version of "%s"\n', word))
+    result = NA
+  }
+  return(result)
+}
+```
+```{r}
+insertStress = function(word, shape) {
+  vowels = "a|e|i|ɪ|ə|ʌ|æ|ʊ|ɛ|u|ɝ|ɑ|ɔ|o"
+  vowelIndices = grep(vowels, unlist(strsplit(word, split="")))
+  if (length(vowelIndices) == 0) {
+    stop("Error, no vowels")
+  }
+  # print(shape == 'iamb')
+  if (shape == 'iamb' | shape == '_P') {
+    lastVowel = tail(vowelIndices, n = 1)
+    consonant = lastVowel - 1
+    while (grepl(vowels, substr(word, consonant, consonant)) & consonant > 1) {
+      consonant = consonant - 1
+    }
+    stressed = paste(substr(word, 1, consonant - 1), "\u02C8", substr(word, consonant, str_length(word)), sep = "")
+  }
+  else {
+    stressed = paste("\u02C8", substr(word, 1, str_length(word)), sep = "")
+  }
+  return(stressed)
+}
+```
+
+
+
+## write exp1 average responses (1 = voiceless, 7 = voiced) from 200 participants as tsv
+```{r}
+
+items = with(subset(exp1, type=="stim"), aggregate(rating.pl, list(item), mean));
+colnames(items) = c("item", "voice")
+items = merge(items, unique(exp1[,c("item","shape_group")]))
+items$item = as.character(items$item)
+items = items %>%
+  mutate('IPA' = Vectorize(get_phonetic_form)(item))
+items = items[complete.cases(items),]
+# TODO fix r remaning in words with multiple prnounciations
+items$IPA <- gsub("r", "ɹ", items$IPA)
+
+write_utf8_csv <- function(df, file) {
+    firstline <- paste(names(df), sep = "", collapse = "\t")
+    data <- apply(df, 1, function(x) {paste(x, sep = "", collapse = "\t")})
+    writeLines(c(firstline, data), file , useBytes = TRUE)
+}
+
+print(sd(items$voice))
+items
+# for (i in 1:nrow(items)) {
+#   items[i,]$IPA = insertStress(items[i,]$IPA, items[i,]$shape_group)
+# }
+
+write_utf8_csv(items, "../corpora/stress_english_voicing_ratings.tsv")
+```
+
+## exp2 average responses (1 = voiceless, 7 = voiced) from 200 participants
+```{r}
+items2 = with(subset(exp2, type=="stim"), aggregate(rating1, list(item), mean));
+colnames(items2) = c("item","voice")
+items2 = items2[order(items2$voice),]; 
+items2 = merge(items2, unique(exp2[,c("item","shape")]))
+items2 = merge(items2, unique(exp2[,c("item","IPA")]))
+# items2 = items2 %>% select(-shape)
+items2$IPA <- gsub("ɚ", "ɝ", items2$IPA)
+items2$IPA <- gsub("r", "ɹ", items2$IPA)
+items2$IPA <- gsub("ʧ", "tʃ", items2$IPA)
+items2$IPA <- gsub("ʤ", "dʒ", items2$IPA)
+items2$shape = as.character(items2$shape)
+
+for (i in 1:nrow(items2)) {
+  items2[i,]$IPA = insertStress(items2[i,]$IPA, items2[i,]$shape)
+}
+# items2 = items2 %>% mutate(IPA = insertStress(IPA, shape))
+# items2
+# print(insertStress("floʊdəəf"))
+# print(sd(items2$voice))
+write_utf8_csv(items2, "../corpora/stress_wug_voicing_ratings.tsv")
+```
+
